@@ -1,29 +1,42 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
-const clamav = require('clamav.js');
 const db = require('./firebase');
 
-async function scanFile(filePath) {
-  return new Promise((resolve, reject) => {
-    const port = 3310; // ClamAV default
-    const host = '127.0.0.1';
-    clamav.ping(port, host, 1000, function(err) {
-      if (err) return reject(new Error('ClamAV not reachable'));
-      clamav.scanFile(filePath, port, host, function(err, object, malicious) {
-        if (err) return reject(err);
-        if (malicious) return reject(new Error(`File contains malware: ${object}`));
-        resolve(true);
-      });
-    });
+const VIRUSTOTAL_API_KEY = '00fd1645cb7ac2d94c56d429f692b3a0f8131ff79a976f59476734aef1800feb';
+
+async function scanFileVirusTotal(filePath) {
+  const form = new FormData();
+  form.append('file', fs.createReadStream(filePath));
+
+  const response = await axios.post('https://www.virustotal.com/api/v3/files', form, {
+    headers: {
+      'x-apikey': VIRUSTOTAL_API_KEY,
+      ...form.getHeaders()
+    }
   });
+
+  const analysisUrl = `https://www.virustotal.com/api/v3/analyses/${response.data.data.id}`;
+  
+  // Poll until analysis finishes
+  let result;
+  do {
+    await new Promise(res => setTimeout(res, 5000));
+    result = await axios.get(analysisUrl, { headers: { 'x-apikey': VIRUSTOTAL_API_KEY } });
+  } while (result.data.data.attributes.status === 'queued');
+
+  // Check if any engine flagged the file
+  const malicious = result.data.data.attributes.stats.malicious;
+  return malicious === 0;
 }
 
 async function uploadFile(userId, filePath, expires = '1w') {
   try {
-    // Scan before upload
-    await scanFile(filePath);
-    console.log('File passed malware scan');
+    const isSafe = await scanFileVirusTotal(filePath);
+    if (!isSafe) {
+      console.error('Malware detected! File upload blocked.');
+      return;
+    }
 
     const form = new FormData();
     form.append('file', fs.createReadStream(filePath));
@@ -44,7 +57,7 @@ async function uploadFile(userId, filePath, expires = '1w') {
 
     console.log('File metadata saved to Firestore');
   } catch (error) {
-    console.error('Upload failed:', error.message);
+    console.error('Error uploading file:', error.message);
   }
 }
 
