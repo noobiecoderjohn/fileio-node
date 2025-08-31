@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>FileIO Web</title>
+  <link rel="stylesheet" href="/public/style.css" />
+</head>
+<body>
+  <header>
+    <h1>FileIO Web (Firebase)</h1>
+    <nav>
+      <% if (user) { %>
+        <a href="/dashboard">Dashboard</a>
+        <form action="/logout" method="post" style="display:inline;">
+          <button type="submit">Logout</button>
+        </form>
+      <% } else { %>
+        <a href="/login">Login</a>
+        <a href="/signup">Sign Up</a>
+      <% } %>
+    </nav>
+  </header>
+
+  <main>
+    <section>
+      <h2>Welcome</h2>
+      <p>This is a simple website where you can sign up, log in, and upload files securely to Firebase Storage. Links are signed and expire after 7 days.</p>
+      <p>To begin, <a href="/signup">create an account</a> or <a href="/login">log in</a>.</p>
+    </section>
+  </main>
+</body>
+</html>
