@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="/public/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Dashboard</h1>
+    <nav>
+      <a href="/">Home</a>
+      <form action="/logout" method="post" style="display:inline;">
+        <button type="submit">Logout</button>
+      </form>
+    </nav>
+  </header>
+
+  <main>
+    <% if (message) { %>
+      <div class="alert success"><%= message %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="alert error"><%= error %></div>
+    <% } %>
+
+    <section class="card">
+      <h2>Upload a File</h2>
+      <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required />
+        <button type="submit">Upload</button>
+      </form>
+      <p><small>Links expire in 7 days (signed URLs).</small></p>
+    </section>
+
+    <section>
+      <h2>Your Recent Uploads</h2>
+      <% if (!uploads.length) { %>
+        <p>No uploads yet.</p>
+      <% } else { %>
+        <ul class="list">
+          <% uploads.forEach(u => { %>
+            <li class="list-item">
+              <div>
+                <strong><%= u.filename %></strong>
+                <div class="meta">
+                  <div>Type: <%= u.mimeType %></div>
+                  <div>Size: <%= (u.size/1024).toFixed(1) %> KB</div>
+                  <div>Uploaded: <%= new Date(u.uploadedAt._seconds ? u.uploadedAt._seconds*1000 : u.uploadedAt).toLocaleString() %></div>
+                  <div>Expires: <%= new Date(u.expiresAt._seconds ? u.expiresAt._seconds*1000 : u.expiresAt).toLocaleString() %></div>
+                </div>
+              </div>
+              <div class="actions">
+                <a class="btn" href="<%= u.signedUrl %>" target="_blank" rel="noopener">Open</a>
+                <form action="/delete/<%= u.id %>" method="post" style="display:inline;">
+                  <button class="btn danger" type="submit">Delete</button>
+                </form>
+              </div>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+    </section>
+  </main>
+</body>
+</html>

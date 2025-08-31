@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Login</title>
+  <link rel="stylesheet" href="/public/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Login</h1>
+    <nav><a href="/">Home</a> | <a href="/signup">Sign Up</a></nav>
+  </header>
+
+  <main>
+    <% if (error) { %>
+      <div class="alert error"><%= error %></div>
+    <% } %>
+
+    <form action="/login" method="post" class="card">
+      <label>Email</label>
+      <input type="email" name="email" required />
+
+      <label>Password</label>
+      <input type="password" name="password" required />
+
+      <button type="submit">Login</button>
+    </form>
+  </main>
+</body>
+</html>
