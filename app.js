@@ -3,9 +3,9 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-
 const { db, bucket } = require('./firebase');
 const { signUp, login, requireAuth, setSession, clearSession } = require('./auth');
+const { scanFileVirusTotal } = require('./upload');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,7 +13,6 @@ const PORT = process.env.PORT || 3000;
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use('/public', express.static(path.join(__dirname, 'public')));
-
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
@@ -30,27 +29,20 @@ app.use(async (req, _res, next) => {
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-app.get('/', (req, res) => {
-  return res.render('index', { user: req.user });
-});
-
-app.get('/signup', (req, res) => {
-  res.render('signup', { error: null });
-});
+// -------------------- Routes -------------------- //
+app.get('/', (req, res) => res.render('index', { user: req.user }));
+app.get('/signup', (req, res) => res.render('signup', { error: null }));
+app.get('/login', (req, res) => res.render('login', { error: null }));
 
 app.post('/signup', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await signUp(email, password);
     setSession(res, user);
-    return res.redirect('/dashboard');
+    res.redirect('/dashboard');
   } catch (e) {
-    return res.status(400).render('signup', { error: e.message || 'Signup failed' });
+    res.status(400).render('signup', { error: e.message || 'Signup failed' });
   }
-});
-
-app.get('/login', (req, res) => {
-  res.render('login', { error: null });
 });
 
 app.post('/login', async (req, res) => {
@@ -58,9 +50,9 @@ app.post('/login', async (req, res) => {
   try {
     const user = await login(email, password);
     setSession(res, user);
-    return res.redirect('/dashboard');
+    res.redirect('/dashboard');
   } catch (e) {
-    return res.status(400).render('login', { error: e.message || 'Login failed' });
+    res.status(400).render('login', { error: e.message || 'Login failed' });
   }
 });
 
@@ -75,11 +67,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     .orderBy('uploadedAt', 'desc')
     .limit(20)
     .get();
-
   const uploads = uploadsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   res.render('dashboard', { user: req.user, uploads, error: null, message: null });
 });
 
+// -------------------- Upload Route -------------------- //
 app.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) {
     const uploadsSnap = await db.collection('uploads')
@@ -92,6 +84,25 @@ app.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   }
 
   try {
+    // ---------------- VirusTotal Scan ----------------
+    const isSafe = await scanFileVirusTotal(req.file.buffer, req.file.originalname);
+    if (!isSafe) {
+      const uploadsSnap = await db.collection('uploads')
+        .where('userId', '==', req.user.id)
+        .orderBy('uploadedAt', 'desc')
+        .limit(20)
+        .get();
+      const uploads = uploadsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      return res.render('dashboard', { 
+        user: req.user, 
+        uploads, 
+        error: 'Malware detected! Upload blocked.', 
+        message: null 
+      });
+    }
+
+    // ---------------- Save to Firebase ----------------
     const getFolderForFile = (mimetype) => {
       if (mimetype.startsWith('image/')) return 'images';
       if (mimetype === 'application/pdf') return 'documents';
@@ -100,7 +111,7 @@ app.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
       if (mimetype.startsWith('video/')) return 'videos';
       return 'others';
     };
-    
+
     const folder = getFolderForFile(req.file.mimetype);
     const filename = `${folder}/${req.user.id}/${Date.now()}-${uuidv4()}-${req.file.originalname}`;
     const file = bucket.file(filename);
@@ -113,7 +124,7 @@ app.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
 
     const [url] = await file.getSignedUrl({
       action: 'read',
-      expires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
     });
 
     const meta = {
@@ -136,10 +147,10 @@ app.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
       .get();
     const uploads = uploadsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    return res.render('dashboard', { user: req.user, uploads, error: null, message: 'Upload successful!' });
+    res.render('dashboard', { user: req.user, uploads, error: null, message: 'Upload successful!' });
+
   } catch (e) {
     console.error(e);
-
     const uploadsSnap = await db.collection('uploads')
       .where('userId', '==', req.user.id)
       .orderBy('uploadedAt', 'desc')
@@ -147,10 +158,11 @@ app.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
       .get();
     const uploads = uploadsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    return res.status(500).render('dashboard', { user: req.user, uploads, error: 'Upload failed', message: null });
+    res.status(500).render('dashboard', { user: req.user, uploads, error: 'Upload failed', message: null });
   }
 });
 
+// -------------------- Delete Route -------------------- //
 app.post('/delete/:id', requireAuth, async (req, res) => {
   try {
     const docRef = db.collection('uploads').doc(req.params.id);
@@ -158,13 +170,9 @@ app.post('/delete/:id', requireAuth, async (req, res) => {
     if (!doc.exists) return res.redirect('/dashboard');
 
     const data = doc.data();
-
     if (data.userId !== req.user.id) return res.redirect('/dashboard');
 
-    if (data.storagePath) {
-      await bucket.file(data.storagePath).delete({ ignoreNotFound: true });
-    }
-
+    if (data.storagePath) await bucket.file(data.storagePath).delete({ ignoreNotFound: true });
     await docRef.delete();
 
     res.redirect('/dashboard');
